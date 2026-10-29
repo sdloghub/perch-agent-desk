@@ -1,0 +1,1 @@
+{"name":"magpie-agent-perch","version":"0.1.0","type":"module","private":true,"description":"Recognize Perch calls across its embedded harnesses","license":"MIT","magpie":{"agent":"./perch.agent.js"}}

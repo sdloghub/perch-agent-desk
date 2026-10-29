@@ -1,0 +1,13 @@
+Perch · 栖 is an independent integration by sdloghub.
+
+Open WebUI provides the underlying conversation application, UI, memory APIs
+and embedding integration. Copyright (c) 2023-2026 Open WebUI contributors.
+The installed upstream LICENSE is preserved in third_party/Open-WebUI-LICENSE.
+Visible Open WebUI attribution is retained in Perch's navigation footer.
+
+Magpie provides the local model gateway and Agent plugin system.
+Copyright (c) 2026 yetone. MIT licensed. Magpie is a separately installed
+dependency; no Magpie binary is bundled.
+
+Other dependencies and agent CLIs retain their upstream licenses. The MIT
+license for Perch's original integration code does not replace these terms.

@@ -1,0 +1,37 @@
+/* Scoped embed skin. Native controls, messages, streaming and tool approval remain Open WebUI's. */
+.perch-embed {
+  --color-gray-950: #191c1a;
+  --color-gray-900: #202421;
+  --color-gray-850: #252a26;
+  --color-gray-800: #303630;
+  --color-gray-100: #f3f5f2;
+  background: #f7f8f6;
+}
+.perch-embed.dark {
+  background: #191c1a;
+}
+.perch-embed #sidebar,
+.perch-embed #sidebar-toggle-button,
+.perch-embed #local-workspace-toolbar,
+.perch-embed main > nav,
+.perch-embed #suggestions-heading,
+.perch-embed [aria-labelledby="suggestions-heading"] {
+  display: none !important;
+}
+.perch-embed #chat-input {
+  font-size: 15px;
+  line-height: 1.7;
+}
+.perch-embed #message-input-container {
+  border-radius: 16px !important;
+}
+.perch-embed main {
+  background: transparent !important;
+}
+.perch-embed .max-w-6xl {
+  max-width: 950px;
+}
+.perch-embed body {
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
+}

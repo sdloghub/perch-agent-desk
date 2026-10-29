@@ -1,0 +1,1 @@
+{"name":"perch-agent-desk","version":"0.1.0","private":true,"main":"main.cjs","scripts":{"start":"electron ."},"description":"Perch standalone Chromium client","dependencies":{"electron":"45.1.0"}}
