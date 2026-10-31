@@ -81,4 +81,24 @@ for packet in ENVELOPES: print(json.dumps(packet),flush=True)
                     self.assertIn('--sandbox',args)
                 self.assertNotIn('fake-key',' '.join(args))
 
+class ReasoningTests(unittest.TestCase):
+    def test_codex_and_antigravity_explicit_effort(self):
+        with tempfile.TemporaryDirectory(dir=bridge.ROOT) as d:
+            root=Path(d)
+            for key in ('codex','gemini'):
+                run=root/key;run.mkdir();workspace=run/'workspace';workspace.mkdir()
+                env=bridge.clean_env();env.update(WEBUI_TOOL_URL='http://127.0.0.1:1/tool',WEBUI_TOOL_TOKEN='test-only',WEBUI_TOOL_SPECS=str(run/'tools.json'))
+                (run/'tools.json').write_text('[]')
+                with patch.object(bridge,'gateway',return_value=('http://127.0.0.1:1/v1','fake-key')):
+                    args,_=bridge.launch({**bridge.AGENTS[key],'reasoning_effort':'high'},run,workspace,env,'system')
+                if key=='codex':self.assertIn('model_reasoning_effort="high"',args)
+                else:self.assertEqual(args[args.index('--effort')+1],'high')
+                self.assertNotIn('reasoning_effort',bridge.AGENTS[key])
+
+    def test_invalid_effort_rejected_before_execution(self):
+        from reasoning_config import effort_for
+        with self.assertRaises(ValueError):effort_for({'model':'local_agents.gemini','reasoning_effort':'max'})
+        self.assertEqual(effort_for({'model':'local_agents.codex','params':{'reasoning_effort':'high'}}),'high')
+        self.assertIsNone(effort_for({'model':'local_agents.codex','reasoning_effort':'default'}))
+
 if __name__=='__main__':unittest.main(verbosity=2)

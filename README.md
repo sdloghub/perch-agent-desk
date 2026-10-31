@@ -4,13 +4,13 @@ A local agent desk with shared memory, project workspaces and a standalone Chrom
 
 [简体中文](README.zh-CN.md) · [Architecture & setup](docs/SETUP.md) · [Magpie agent plugin](magpie-plugin/README.md)
 
-Perch brings the conversation history, working directory and memory of several agent runtimes into one macOS window. It is built **on Open WebUI and Magpie**: Open WebUI owns conversations and the memory database; Magpie routes supported model requests. Perch adds the workspace shell, runtime adapters, scoped memory tools and a dedicated Magpie agent identity. This is an independent integration, not an official product of either upstream project.
+Perch brings the conversation history, working directory and memory of several agent runtimes into one macOS window. It is built **on Open WebUI and Magpie**: Open WebUI owns conversations and the memory database; Magpie routes supported model requests. Perch adds native workspace controls, runtime adapters, scoped memory tools and a dedicated Magpie agent identity. This is an independent integration, not an official product of either upstream project.
 
 - Persistent history sidebar with title/content search, continuation and unsent-draft protection.
 - Per-chat working directories shared across the embedded runtimes.
 - Searchable, paginated memory library with provenance, editing, deletion and a local revision journal.
 - Local lexical/embedding retrieval, global user preferences and project-scoped context.
-- React + Radix Themes interface, Phosphor icons, light/dark themes and narrow-screen navigation.
+- Original Open WebUI interface with a black palette, compact workspace controls and responsive memory management.
 - Electron client using Chromium, independent of an external browser.
 - Magpie Agent plugin: internal harness requests use Perch's dedicated Agent Key, so usage belongs to `perch` even when the client's User-Agent names another harness.
 
@@ -34,15 +34,13 @@ Requires macOS, Python 3.12, Node.js 24, Magpie with Agent plugin support, and t
 ```sh
 python3.12 -m venv .venv
 .venv/bin/pip install -r requirements.txt
-npm ci --prefix ui
-npm run build --prefix ui
 npm ci --prefix desktop
 .venv/bin/python desktop/build_app.py
 .venv/bin/python scripts/install_magpie_plugin.py
 .venv/bin/python start.py
 ```
 
-Open `http://127.0.0.1:8080/desk` or `desktop/Perch.app`. The service uses Open WebUI's single-user mode with no login form and binds to loopback only. Do not expose this configuration to a network.
+Open `http://127.0.0.1:8080/` or `desktop/Perch.app`. The service uses Open WebUI's single-user mode with no login form and binds to loopback only. Do not expose this configuration to a network.
 
 ## Verification
 
@@ -59,6 +57,6 @@ The runtime tests require installed CLI dependencies. They use loopback model fi
 - [Open WebUI](https://github.com/open-webui/open-webui): conversation engine, UI, memory APIs and local embeddings. Its license and branding terms remain applicable; [license copy](third_party/Open-WebUI-LICENSE).
 - [Magpie](https://github.com/yetone/magpie): model gateway, provider routing and the Agent plugin mechanism. MIT licensed.
 - [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness), [Step Code](https://github.com/stepfun-ai/Step-Code), [Z Code](https://github.com/zai-org/ZCode): separately installed runtimes. Codex, Claude Code and Antigravity are installed/authenticated separately.
-- React, Radix Themes, Phosphor Icons and Electron supply the app interface and desktop shell.
+- Electron supplies the standalone Chromium shell. The earlier React/Radix prototype remains in `ui/` as source history; it is no longer the app entry point.
 
-Original Perch integration code is MIT licensed. Upstream software retains its own licenses; it is not relicensed by this repository. The UI retains visible Open WebUI and Magpie attribution. See [NOTICE](NOTICE).
+Original Perch integration code is MIT licensed. Upstream software retains its own licenses; it is not relicensed by this repository. The native UI retains Open WebUI branding; the integration credits Magpie here and in NOTICE. See [NOTICE](NOTICE).

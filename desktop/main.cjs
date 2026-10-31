@@ -1,5 +1,4 @@
-const { app, BrowserWindow, shell, dialog } = require("electron");
-const http = require("node:http");
+const { app, BrowserWindow, shell, dialog, ipcMain } = require("electron");
 const URL_BASE = "http://127.0.0.1:8080";
 app.setName("Perch");
 app.setPath(
@@ -7,6 +6,20 @@ app.setPath(
   require("node:path").join(app.getPath("appData"), "Local Agents WebUI"),
 );
 let win;
+let choosingWorkspace = false;
+ipcMain.handle("perch:choose-workspace", async (event) => {
+  if (!win || event.sender !== win.webContents || event.senderFrame !== win.webContents.mainFrame ||
+      new URL(event.senderFrame.url).origin !== URL_BASE) throw new Error("Untrusted folder request");
+  if (choosingWorkspace) return null;
+  choosingWorkspace = true;
+  try {
+    const result = await dialog.showOpenDialog(win, {
+      title: "选择工作空间", buttonLabel: "使用此文件夹",
+      properties: ["openDirectory", "createDirectory"],
+    });
+    return result.canceled ? null : result.filePaths[0] || null;
+  } finally { choosingWorkspace = false; }
+});
 function createWindow() {
   win = new BrowserWindow({
     width: 1200,
@@ -16,6 +29,7 @@ function createWindow() {
     title: "Perch · 栖",
     backgroundColor: "#171717",
     webPreferences: {
+      preload: require("node:path").join(__dirname, "preload.cjs"),
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
@@ -35,7 +49,7 @@ function createWindow() {
   win.webContents.session.setPermissionRequestHandler(
     (_wc, _permission, callback) => callback(false),
   );
-  win.loadURL(URL_BASE + "/desk");
+  win.loadURL(URL_BASE + "/");
   win.webContents.on("did-fail-load", (_e, code) => {
     if (code !== -3)
       dialog.showErrorBox(

@@ -16,6 +16,7 @@ jobs:
           cache: npm
           cache-dependency-path: ui/package-lock.json
       - run: python -m compileall -q .
-      - run: node --check desktop/main.cjs && node --check ui/bridge.js && node --check webui-tools.mjs
+      - run: node --check desktop/main.cjs && node --check desktop/preload.cjs && node --check perch_controls.js && node --check local_workspace_ui.js && node --check ui/bridge.js && node --check webui-tools.mjs
+      - run: node scripts/test-controls.cjs
       - run: npm ci --prefix ui
       - run: npm run build --prefix ui

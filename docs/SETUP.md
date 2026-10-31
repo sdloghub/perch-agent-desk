@@ -7,7 +7,7 @@ Electron 45.1.0 and a Magpie release supporting custom Agent plugins (tested
 with 0.1.1809). Install Magpie from its official distribution. The repository
 contains no model weights, provider accounts or vendor CLI binaries.
 
-Install the Python, UI and desktop dependencies with the commands in README.
+Install the Python and desktop dependencies with the commands in README.
 Before starting `start.py`, download a compatible local embedding model:
 
 ```sh
@@ -68,18 +68,25 @@ There is no account onboarding wizard in this early source release.
 ## Application and UI
 
 `desktop/build_app.py` copies the pinned Electron distribution, sets Perch's
-name/bundle ID, copies the sandboxed desktop shell and signs it locally. It
+name/bundle ID, generates the Perch P icon with transparent outer padding,
+copies the sandboxed desktop shell and signs it locally. Icon generation uses
+`desktop/build_icon.swift`, macOS `iconutil`, and Xcode Command Line Tools. It
 refuses to overwrite an existing bundle. Open `desktop/Perch.app` after starting
-the service. The desktop shell opens `/desk`, preserves the previous local
+the service. The desktop shell opens `/`, preserves the previous local
 WebUI browser profile on upgrades, and has no Node integration in web pages.
 It does not start the Python service automatically. A user-managed LaunchAgent
 may run `start.py` with the repository's Python executable and working directory.
 
-`/desk` is the React/Radix shell. The conversation pane embeds the same-origin
-Open WebUI app so streaming, cancellation, branching, attachments and model
-selection keep using the upstream implementation. A narrow same-origin
-postMessage bridge shares only UI state and theme commands. It does not expose
-Node or filesystem APIs. The original Open WebUI routes remain usable.
+The main interface is the original Open WebUI SPA at `/`, with the upstream
+sidebar, chat, model selector, attachments and streaming controls intact.
+`local_workspace_ui.js` and `.css` add compact workspace/history/memory controls
+and a neutral black treatment. The theme initializes to dark before upstream
+hydration. Memory records are paginated and expandable. No iframe or second
+frontend framework is loaded by the native entry point.
+
+Old `/desk` bookmarks redirect to `/`; a valid `?chat=<UUID>` continues at
+`/c/<UUID>`. The earlier React prototype and bridge assets remain in `ui/` for
+reference but are no longer the application entry point or build dependency.
 
 ## Memory and projects
 
@@ -97,3 +104,24 @@ consistent matching set of databases. Do not publish these files.
 The service can execute real terminal/file tools in the selected directory.
 This is a local, trusted-user integration, not a multi-tenant sandbox. Avoid
 untrusted project contents and review each runtime's permission options.
+
+
+## Desktop controls
+
+`desktop/preload.cjs` must ship next to `main.cjs`; `build_app.py` includes it.
+Clicking the workspace button in Perch opens the native macOS directory picker.
+Browser users can use the directory manager instead. Provider groups and model
+reasoning controls are served by `perch_controls.js`; capability metadata comes
+from the authenticated `/api/local-workspaces/runtime-models` endpoint.
+`reasoning_config.py` validates per-model effort levels before invoking runtimes.
+Automatic leaves the runtime default intact. Explicit settings affect subsequent
+requests and persist locally per chat/model, with a model preference for new chats.
+
+Run `node scripts/test-controls.cjs` for fetch/body/header preservation checks and
+`.venv/bin/python -m unittest discover -p 'test_*.py' -v` for runtime regressions.
+The native CLI tests use loopback mock endpoints and do not consume provider credit.
+
+Local screenshots and acceptance reports live under `artifacts/`; local progress
+notes live in `docs/local/`. The workbench root README lists active directories
+and archived experiments. Do not move runtime dependencies, credentials or data
+without checking their live references.

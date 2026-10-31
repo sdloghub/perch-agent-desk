@@ -1,0 +1,13 @@
+const vm=require('node:vm'),fs=require('node:fs'),assert=require('node:assert/strict');
+const values=new Map([['token','test']]);const calls=[];
+const context={URL,Request,Response,location:{origin:'http://127.0.0.1:8080',href:'http://127.0.0.1:8080/',pathname:'/'},localStorage:{getItem:k=>values.get(k)},document:{getElementById:()=>null,querySelectorAll:()=>[],querySelector:()=>null,addEventListener(){},documentElement:{}},MutationObserver:class{observe(){}},requestAnimationFrame(){}};
+context.window={fetch:async(input,init)=>{let request=new Request(new URL(typeof input==='string'?input:input.url,context.location.href),input instanceof Request?input:init);if(request.url.endsWith('runtime-models'))return Response.json({codex:{provider:'OpenAI',levels:['high']}});calls.push({body:await request.json(),auth:request.headers.get('Authorization'),signal:request.signal});return Response.json({ok:true});},addEventListener(){}};context.fetch=(...args)=>context.window.fetch(...args);
+vm.createContext(context);vm.runInContext(fs.readFileSync('perch_controls.js','utf8'),context);
+(async()=>{await new Promise(resolve=>setTimeout(resolve,20));
+const send=()=>new Request('http://127.0.0.1:8080/api/chat/completions',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer private-test'},body:JSON.stringify({model:'local_agents.codex',messages:[{role:'user',content:'preserved'}]})});
+await context.window.fetch(send());assert.equal(calls[0].body.reasoning_effort,undefined);
+values.set('perch:effort:default:codex','high');await context.window.fetch(send());assert.equal(calls[1].body.reasoning_effort,'high');assert.equal(calls[1].body.params.reasoning_effort,'high');assert.equal(calls[1].auth,'Bearer private-test');assert.equal(calls[1].body.messages[0].content,'preserved');
+context.location.pathname='/c/new-chat';await context.window.fetch(send());assert.equal(calls[2].body.reasoning_effort,'high');
+await context.window.fetch('http://127.0.0.1:8080/api/chat/completions',{method:'POST',body:JSON.stringify({model:'local_agents.codex'})});assert.equal(calls[3].body.reasoning_effort,'high');
+const controller=new AbortController();await context.window.fetch(new Request(send(),{signal:controller.signal}));controller.abort();assert.equal(calls[4].signal.aborted,true);
+console.log('PASS: Request default, explicit reasoning, headers/context, SPA persistence, URL+init, abort signal');})().catch(e=>{console.error(e);process.exitCode=1});

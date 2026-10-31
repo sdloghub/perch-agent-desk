@@ -20,6 +20,8 @@
 !execution_display.py
 !shared_memory.py
 !runtime_context.py
+!reasoning_config.py
+!perch_controls.js
 !workspace_store.py
 !memory_journal.py
 !memory-policy.md
@@ -45,9 +47,11 @@ ui/*
 !desktop/
 desktop/*
 !desktop/main.cjs
+!desktop/preload.cjs
 !desktop/package.json
 !desktop/package-lock.json
 !desktop/build_app.py
+!desktop/build_icon.swift
 !harness-runtime/
 harness-runtime/*
 !harness-runtime/package.json
@@ -58,6 +62,7 @@ harness-runtime/*
 scripts/*
 !scripts/install_magpie_plugin.py
 !scripts/test-magpie-plugin.mjs
+!scripts/test-controls.cjs
 !docs/
 docs/*
 !docs/DESIGN.md

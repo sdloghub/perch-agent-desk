@@ -5,7 +5,7 @@ import os
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter,Depends,HTTPException,Request
-from fastapi.responses import FileResponse,HTMLResponse
+from fastapi.responses import FileResponse,HTMLResponse,RedirectResponse
 from pydantic import BaseModel,Field
 from fastapi import Query
 
@@ -135,6 +135,14 @@ async def desk_overview(request:Request,user=Depends(guard)):
     groups=Counter('codex' if (m.path or '').startswith('imports/codex/') else 'workspace' if (m.path or '').startswith('workspaces/') else 'global' for m in rows)
     return {'total':len(rows),'types':dict(Counter(m.type for m in rows)),'groups':dict(groups),'workspaces':len(store().list(user.id))}
 
+@router.get('/runtime-models')
+async def runtime_models(user=Depends(guard)):
+    from reasoning_config import CAPABILITIES
+    return {key:{'provider':v[0],'levels':v[1]} for key,v in CAPABILITIES.items()}
+
+@router.get('/controls.js')
+async def controls_script():return FileResponse(ROOT/'perch_controls.js',media_type='application/javascript',headers={'Cache-Control':'no-cache'})
+
 @router.get('/ui.js')
 async def workspace_script():return FileResponse(ROOT/'local_workspace_ui.js',media_type='application/javascript',headers={'Cache-Control':'no-cache'})
 @router.get('/ui.css')
@@ -145,8 +153,10 @@ async def workspace_style():return FileResponse(ROOT/'local_workspace_ui.css',me
 class WorkspaceSPA(SPAStaticFiles):
     def file_response(self,full_path,stat_result,scope,status_code=200):
         if str(full_path).endswith('.html'):
-            text=Path(full_path).read_text()
-            text=text.replace('</head>','<link rel="stylesheet" href="/api/local-workspaces/ui.css">\n<script defer src="/api/local-workspaces/ui.js"></script>\n<script defer src="/desk/bridge.js"></script>\n</head>')
+            text=Path(full_path).read_text().replace('maximum-scale=1, ', '', 1)
+            # Choose the requested dark theme before upstream's own theme bootstrap.
+            text=text.replace('<head>', '<head><script>try{localStorage.theme="dark"}catch(e){}document.documentElement.classList.add("dark");document.documentElement.style.colorScheme="dark";</script>', 1)
+            text=text.replace('</head>','<link rel="stylesheet" href="/api/local-workspaces/ui.css">\n<script defer src="/api/local-workspaces/ui.js"></script>\n<script defer src="/api/local-workspaces/controls.js"></script>\n</head>')
             return HTMLResponse(text,status_code=status_code,headers={'Cache-Control':'no-cache'})
         return super().file_response(full_path,stat_result,scope,status_code)
 original=list(app.router.routes)
@@ -154,7 +164,13 @@ app.include_router(router)
 desk_router=APIRouter()
 @desk_router.get('/desk')
 @desk_router.get('/desk/')
-async def desk_index():return FileResponse(ROOT/'ui/dist/index.html',headers={'Cache-Control':'no-cache'})
+async def desk_index(request:Request):
+    # Old desktop/bookmark links continue directly in the upstream SPA.
+    chat=request.query_params.get('chat', '')
+    from uuid import UUID
+    try:target='/c/'+str(UUID(chat))
+    except ValueError:target='/'
+    return RedirectResponse(target,status_code=307)
 @desk_router.get('/desk/bridge.js')
 async def desk_bridge():return FileResponse(ROOT/'ui/bridge.js',media_type='application/javascript',headers={'Cache-Control':'no-cache'})
 @desk_router.get('/desk/embed.css')

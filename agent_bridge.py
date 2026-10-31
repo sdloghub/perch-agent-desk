@@ -84,7 +84,7 @@ async def tool_bridge(body,tools,metadata,caller,run_dir,display=None):
 
 def launch(agent,run_dir,workspace,env,system):
     """Build fixed executable/argv; user prompt is stdin, never shell interpolation."""
-    kind=agent['kind'];model=agent['model']
+    kind=agent['kind'];model=agent['model'];effort=agent.get('reasoning_effort')
     callback_env={k:env[k] for k in ('WEBUI_TOOL_URL','WEBUI_TOOL_TOKEN','WEBUI_TOOL_SPECS')}
     mcp={'command':PYTHON,'args':[str(ROOT/'webui_mcp.py')],'env':callback_env}
     if kind=='codex':
@@ -95,6 +95,7 @@ def launch(agent,run_dir,workspace,env,system):
               '-c','mcp_servers.webui.command='+json.dumps(PYTHON),
               '-c','mcp_servers.webui.args='+json.dumps(mcp['args']),
               '-c','mcp_servers.webui.env_vars='+json.dumps(['WEBUI_TOOL_URL','WEBUI_TOOL_TOKEN','WEBUI_TOOL_SPECS']),'-']
+        if effort:args[-1:-1]=['-c','model_reasoning_effort='+json.dumps(effort)]
         return args,system+'\n\n'
     if kind=='agy':
         # agy has no per-invocation MCP option. Use its native terminal with a
@@ -106,7 +107,7 @@ def launch(agent,run_dir,workspace,env,system):
         specs=Path(env['WEBUI_TOOL_SPECS']).read_text()
         prefix=system+'\n\nWebUI 工具可通过终端调用：'+PYTHON+' '+helper.name+' 工具名 \'JSON参数\'。仅在需要时调用，参数是 JSON 对象。工具定义：'+specs+'\n\n'
         return [os.environ.get('PERCH_AGY') or shutil.which('agy') or str(Path.home()/'.local/bin/agy'),'--input-format','stream-json','--output-format','stream-json',
-                '--mode','auto','--sandbox','--disable-slash-commands','--model',model,'--print-timeout','580s'],prefix
+                *(['--effort',effort] if effort else []),'--mode','auto','--sandbox','--disable-slash-commands','--model',model,'--print-timeout','580s'],prefix
     base,key=gateway()
     if kind=='claude':
         binaries=sorted(CLAUDE.glob('*/**/Contents/MacOS/claude'),key=lambda p:p.stat().st_mtime,reverse=True)
@@ -117,7 +118,7 @@ def launch(agent,run_dir,workspace,env,system):
         return [str(binaries[0]),'--bare','--print','--verbose','--output-format','stream-json',
                 '--no-session-persistence','--strict-mcp-config','--mcp-config',str(config),
                 '--permission-mode','acceptEdits','--allowedTools','Read,Edit,Write,Glob,Grep,Bash,mcp__webui__*',
-                '--model',model,'--append-system-prompt',system],''
+                '--model',model,*(['--effort',effort] if effort else []),'--append-system-prompt',system],''
     if kind=='step':
         config_root=run_dir/'step';config_root.mkdir()
         agent_dir=config_root/'agent';agent_dir.mkdir()
@@ -125,10 +126,10 @@ def launch(agent,run_dir,workspace,env,system):
         # Models and MCP belong to the injected Step config root, not ~/.stepcode.
         (config_root/'models.json').write_text(json.dumps({'providers':{'magpie':{'baseUrl':base,
             'api':'openai-completions','apiKey':'$OPENAI_API_KEY',
-            'models':[{'id':model,'name':'Step 5 / Workbuddy','contextWindow':262144,'maxTokens':8192}]}}}))
+            'models':[{'id':model,'name':'Step 5 / Workbuddy','contextWindow':262144,'maxTokens':8192,'reasoning':True}]}}}))
         (config_root/'config.toml').write_text('defaultProjectTrust = "never"\n[mcp_servers.webui]\ncommand = '+json.dumps(PYTHON)+'\nargs = '+json.dumps(mcp['args'])+'\nenabled = true\n[mcp_servers.webui.env]\n'+''.join(k+' = '+json.dumps(v)+'\n' for k,v in callback_env.items()))
         return [NODE,str(SOURCES/'Step-Code/apps/cli/dist/main.js'),'--provider','magpie','--model',model,
-                '--mode','json','--print','--no-session','--no-extensions','--no-skills','--no-prompt-templates',
+                *(['--thinking',effort] if effort else []),'--mode','json','--print','--no-session','--no-extensions','--no-skills','--no-prompt-templates',
                 '--no-context-files','--append-system-prompt',system],''
     if kind=='zcode':
         home=run_dir/'zcode-home';(home/'.zcode/cli').mkdir(parents=True)
@@ -139,8 +140,8 @@ def launch(agent,run_dir,workspace,env,system):
             'providerConfigRules':{'providerRules':[{'providerId':'magpie','providerName':'Workbuddy / Magpie','config':{
                 'group':'standard-personal','access':{'type':'api-key','apiKey':key},
                 'api':{'type':'openai-chat-completions','baseUrl':base},'personalModelIds':[model]}}]},
-            'modelConfigRules':{'providerModelRules':[],'manualProviderModelRules':[]},
-            'defaultModelSelection':{'providerId':'magpie','modelId':model}}}))
+            'modelConfigRules':{'providerModelRules':[{'providerId':'magpie','modelId':model,'config':{'optionSpecs':{'reasoningLevel':{'values':['disabled','enabled'],'map':'{"thinking": {"type": reasoningLevel == "disabled" ? "disabled" : "enabled"}}'}}}}],'manualProviderModelRules':[]},
+            'defaultModelSelection':{'providerId':'magpie','modelId':model,**({'options':{'reasoningLevel':'disabled' if effort=='off' else 'enabled'}} if effort else {})}}}))
         config.chmod(0o600);env['ZCODE_PERSONAL_PROVIDER_CONFIG_FILE']=str(config)
         (home/'.zcode/cli/config.json').write_text(json.dumps({
             'features':{'mcp':True,'subagent':False,'memory':False},'memory':{'use':False},
@@ -199,7 +200,8 @@ class Events:
 async def run_agent(body,tools,metadata,emitter=None,caller=None,request=None,*,max_seconds=600):
     key=body.get('model','').rsplit('.',1)[-1]
     if key not in AGENTS:raise ValueError('请选择有效的 Agent 与模型来源')
-    agent=AGENTS[key]
+    from reasoning_config import effort_for
+    agent={**AGENTS[key], 'reasoning_effort':effort_for(body)}
     chat=str(metadata.get('chat_id') or uuid.uuid4().hex)
     chat_hash=hashlib.sha256(chat.encode()).hexdigest()[:24]
     run_dir=ROOT/'agent-runs'/chat_hash/uuid.uuid4().hex;run_dir.mkdir(parents=True,mode=0o700)

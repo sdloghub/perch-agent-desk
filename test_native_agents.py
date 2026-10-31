@@ -8,7 +8,7 @@ from aiohttp import web
 import agent_bridge as bridge
 
 class NativeTests(unittest.IsolatedAsyncioTestCase):
-    async def exercise(self,key):
+    async def exercise(self,key,effort=None):
         requests=[];calls=[]
         async def serve(req):
             body=await req.json()
@@ -44,13 +44,16 @@ class NativeTests(unittest.IsolatedAsyncioTestCase):
         old=sys.modules.get('open_webui.utils.middleware');sys.modules['open_webui.utils.middleware']=fake
         try:
             with patch.object(bridge,'gateway',return_value=(f'http://127.0.0.1:{port}/v1','offline-placeholder')):
-                result=await bridge.run_agent({'model':'local_agents.'+key,'messages':[{'role':'system','content':'native-system-marker'},
+                result=await bridge.run_agent({'model':'local_agents.'+key,**({'reasoning_effort':effort} if effort else {}),'messages':[{'role':'system','content':'native-system-marker'},
                     {'role':'user','content':'native-history-marker'},{'role':'user','content':'Invoke probe_memory then answer native-final-context-ok.'}]},
                     {'probe_memory':{'spec':{'name':'probe_memory','description':'Read-only test memory','parameters':{'type':'object','properties':{'query':{'type':'string'}},'required':['query']}}}},
                     {'chat_id':'native-offline-'+key},max_seconds=90)
             self.assertIn('native-final-context-ok',result)
             self.assertEqual(len(calls),1,'CLI must expose and execute the scoped WebUI MCP tool; exposed='+repr([t.get('function',t).get('name') for t in requests[0].get('tools',[])]))
             self.assertTrue(all(x['model']==bridge.AGENTS[key]['model'] for x in requests))
+            if effort:
+                expected={'claude-sonnet':('output_config',{'effort':effort}), 'step5':('reasoning_effort',effort), 'glm53':('thinking',{'type':'disabled' if effort=='off' else 'enabled'})}[key]
+                self.assertEqual(requests[0].get(expected[0]),expected[1], 'reasoning must reach the actual model request')
             for marker in ('native-system-marker','native-history-marker'):self.assertIn(marker,json.dumps(requests[0]))
         finally:
             if old is None:sys.modules.pop('open_webui.utils.middleware',None)
@@ -59,5 +62,9 @@ class NativeTests(unittest.IsolatedAsyncioTestCase):
     async def test_step_official_cli(self):await self.exercise('step5')
     async def test_zcode_official_cli(self):await self.exercise('glm53')
     async def test_local_claude_cli(self):await self.exercise('claude-sonnet')
+    async def test_step_reasoning_wire(self):await self.exercise('step5','high')
+    async def test_claude_reasoning_wire(self):await self.exercise('claude-sonnet','high')
+    async def test_glm_reasoning_enabled_wire(self):await self.exercise('glm53','high')
+    async def test_glm_reasoning_disabled_wire(self):await self.exercise('glm53','off')
 
 if __name__=='__main__':unittest.main(verbosity=2)

@@ -46,7 +46,7 @@ class SourceTests(unittest.IsolatedAsyncioTestCase):
             await pipe.pipe({'model':'deepseek_harness'})
 
 class RuntimeTests(unittest.IsolatedAsyncioTestCase):
-    async def test_real_harness_tools_and_context(self):
+    async def exercise(self,effort=None):
         requests=[];callbacks=[]
         async def mock(req):
             body=await req.json();requests.append(body)
@@ -73,7 +73,7 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         fake.execute_tool_call=execute
         old=sys.modules.get('open_webui.utils.middleware');sys.modules['open_webui.utils.middleware']=fake
         try:
-            result=await run_harness({'_harness_model':'group/deepseek','messages':[
+            result=await run_harness({'_harness_model':'group/deepseek','model':'deepseek_harness.official',**({'reasoning_effort':effort} if effort else {}),'messages':[
                 {'role':'system','content':'system-marker'}, {'role':'user','content':'old-context-marker'},
                 {'role':'assistant','content':'old-assistant-marker'}, {'role':'user','content':'current-marker'}]},
                 {'probe_memory':{'spec':{'name':'probe_memory','description':'Read probe memory',
@@ -86,9 +86,14 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
             payload=json.dumps(requests[0])
             for marker in ('system-marker','old-context-marker','old-assistant-marker','current-marker'):self.assertIn(marker,payload)
             self.assertEqual(requests[0]['model'],'group/deepseek')
+            if effort:self.assertEqual(requests[0].get('reasoning_effort'),effort)
         finally:
             if old is None:sys.modules.pop('open_webui.utils.middleware',None)
             else:sys.modules['open_webui.utils.middleware']=old
             await runner.cleanup()
+
+    async def test_real_harness_tools_and_context(self):await self.exercise()
+    async def test_high_reasoning_wire(self):await self.exercise('high')
+    async def test_max_reasoning_wire(self):await self.exercise('max')
 
 if __name__=='__main__':unittest.main(verbosity=2)

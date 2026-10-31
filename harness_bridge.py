@@ -41,7 +41,7 @@ def make_patch(model, base_url):
             'apiKeyEnv':'OPENAI_API_KEY', 'api':'openai-completions', 'baseURL':base_url,
             'retryPolicy':{'mode':'normal','maxRetries':0},
             'compat':{'thinkingFormat':'deepseek'},
-            'models':[{'id':model,'contextWindow':262144,'maxTokens':8192}],
+            'models':[{'id':model,'contextWindow':262144,'maxTokens':8192,'reasoningEfforts':{'low':'low','high':'high','max':'max'}}],
         }}}},
         {'id':'system-prompt','config':{'personaPrefix':"!!ENV_SYSTEM_PROMPT"}},
         {'insert':[{'id':'webui-tools','name':str(ROOT/'webui-tools.mjs')}]},
@@ -49,6 +49,8 @@ def make_patch(model, base_url):
 
 async def run_harness(body, tools, metadata, emitter=None, caller=None, request=None,
                       *, base_url=None, api_key=None, max_seconds=600):
+    from reasoning_config import effort_for
+    effort = effort_for(body)
     model = body.get('_harness_model', 'group/deepseek')
     from deepseek_route import resolve_deepseek
     if resolve_deepseek(model, {}) is None:
@@ -163,7 +165,7 @@ async def run_harness(body, tools, metadata, emitter=None, caller=None, request=
                         if 'error' in packet:raise RuntimeError('Harness RPC: '+json.dumps(packet['error'],ensure_ascii=False))
                         return packet.get('result',{})
             async with asyncio.timeout(max_seconds):
-                await send(1,'initialize',{'cwd':str(workspace),'provider':'magpie','model':model,'maxTokens':body.get('max_tokens') or 8192})
+                await send(1,'initialize',{'cwd':str(workspace),'provider':'magpie','model':model,'maxTokens':body.get('max_tokens') or 8192,**({'reasoningEffort':effort} if effort else {})})
                 hello=await read_until(1)
                 assert hello['serverInfo']['name']=='deepseek-harness-sdk-runtime'
                 await send(2,'session/prompt',{'sessionId':run_id,'contentBlocks':blocks})

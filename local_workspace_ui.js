@@ -3,6 +3,7 @@
   'use strict';
   const base = '/api/local-workspaces';
   let state = null, activeChat = undefined, dialog, toolbar, memoryScope = 'current', browsing = '';
+  let memoryOffset = 0, memoryRequest = 0;
   let historyPage = 1, historyRequest = 0, historyRows = [], historyQuery = '', historyTimer;
   const $ = (id) => document.getElementById(id);
   const chatId = () => location.pathname.startsWith('/c/') ? decodeURIComponent(location.pathname.slice(3)) : null;
@@ -16,12 +17,19 @@
     const token = localStorage.getItem('token');
     if (!token) throw new Error('正在连接本机用户，请稍后再试');
     const response = await fetch(prefix + path, {method, headers: {'Content-Type': 'application/json', Authorization: 'Bearer ' + token}, ...(data === undefined ? {} : {body: JSON.stringify(data)})});
-    const result = await response.json();
+    const text = await response.text();
+    let result;
+    try { result = JSON.parse(text); } catch { throw new Error('本机服务响应异常（HTTP ' + response.status + '）'); }
     if (!response.ok) throw new Error(typeof result.detail === 'string' ? result.detail : '操作失败，请检查输入');
     return result;
   }
   function notice(message, error = false) {
-    const node = $('lw-notice');
+    let node = $('lw-notice');
+    if (!dialog?.open) {
+      node = $('perch-toast');
+      if (!node) { node = element('div', undefined, 'perch-toast'); node.id = 'perch-toast'; node.setAttribute('role','status'); document.body.append(node); }
+      clearTimeout(node.hideTimer); node.hideTimer=setTimeout(()=>node.remove(),6000);
+    }
     if (node) { node.textContent = message; node.classList.toggle('lw-error', error); }
   }
   function workspace() { return state?.selection?.workspace; }
@@ -39,6 +47,7 @@
     toolbar.querySelector('.lw-workspace-name').textContent = w ? w.name : '当前聊天临时目录';
     toolbar.querySelector('.lw-workspace-path').textContent = w ? w.path : '选择本机目录 · 所有 Agent 共用';
     toolbar.querySelector('button').title = w ? w.path : '建立本机工作区';
+    toolbar.querySelector('button').setAttribute('aria-label', '本机工作区 ' + (w ? w.name : '当前聊天临时目录'));
   }
   async function safe(action) {
     try { await action(); } catch (e) { notice(e.message, true); }
@@ -50,12 +59,13 @@
     if (!toolbar) {
       toolbar = element('div', undefined, 'lw-toolbar'); toolbar.id = 'local-workspace-toolbar';
       const choose = element('button', undefined, 'lw-current'); choose.type = 'button'; choose.setAttribute('aria-label', '本机工作区');
-      choose.append(element('span', '▱', 'lw-folder-icon'));
+      const contextLabel = element('span', '工作区', 'lw-context-label');
+      choose.append(contextLabel);
       const label = element('span', undefined, 'lw-current-label');
       label.append(element('strong', '本机工作区 · ', 'lw-workspace-name'), element('small', '', 'lw-workspace-path'));
-      choose.append(label); choose.addEventListener('click', () => safe(() => openManager('workspace')));
-      const memory = element('button', '共用记忆', 'lw-memory-button'); memory.type = 'button'; memory.addEventListener('click', () => safe(() => openManager('memory')));
-      const history = element('button', '继续对话', 'lw-memory-button'); history.type = 'button'; history.id = 'lw-history-open'; history.addEventListener('click', () => safe(() => openManager('history')));
+      choose.append(label); choose.addEventListener('click', () => safe(chooseWorkspace));
+      const memory = element('button', '记忆', 'lw-memory-button'); memory.type = 'button'; memory.addEventListener('click', () => safe(() => openManager('memory')));
+      const history = element('button', '继续对话', 'lw-memory-button'); history.type = 'button'; history.id = 'lw-history-open'; history.setAttribute('aria-label', '继续对话'); history.addEventListener('click', () => safe(() => openManager('history')));
       const actions = element('div', undefined, 'lw-toolbar-actions'); actions.append(history, memory);
       toolbar.append(choose, actions);
     }
@@ -92,10 +102,13 @@
       <section id="lw-memory-section" hidden>
         <div class="lw-memory-heading"><div><h3>所有模型共用的记忆</h3><p id="lw-memory-for" class="lw-path"></p></div><select id="lw-memory-scope" aria-label="记忆范围"><option value="current">全局 + 当前工作区</option><option value="global">仅全局</option><option value="all">全部工作区</option></select></div>
         <form id="lw-memory-search" class="lw-line"><input id="lw-query" placeholder="搜索记忆" aria-label="搜索记忆"><button type="submit">搜索</button></form>
-        <div id="lw-memory-list"></div>
+        <p id="lw-memory-count" class="lw-path" role="status"></p><div id="lw-memory-list" aria-live="polite"></div><button type="button" id="lw-memory-more" hidden>加载更多记忆</button>
         <details id="lw-new-memory"><summary>添加共用记忆</summary><form id="lw-memory-form"><label for="lw-content">记忆内容</label><textarea id="lw-content" required rows="3" placeholder="项目决定、进度或长期偏好"></textarea><div class="lw-line"><select id="lw-memory-type" aria-label="保存范围"><option value="context">当前工作区的项目记忆</option><option value="user">全局用户偏好</option></select><input id="lw-memory-path" placeholder="分类，如 decisions" aria-label="记忆分类"><button type="submit" class="lw-primary">保存记忆</button></div></form></details>
         <p class="lw-hint">记忆保存在 WebUI，供 DeepSeek、Step Code、Antigravity、Codex、Claude Code 和 Z Code 使用。全局偏好跨项目共享，项目记忆跟随工作区。</p>
       </section>`;
+    const body = element('div', undefined, 'lw-dialog-body');
+    for (const child of [...dialog.children].slice(2)) body.append(child);
+    dialog.append(body);
     document.body.append(dialog);
     $('lw-close').onclick = () => dialog.close();
     $('lw-workspace-tab').onclick = () => switchTab('workspace');
@@ -108,7 +121,7 @@
     $('lw-history-confirm').onclick = () => dialog.close();
     dialog.addEventListener('close', () => { clearTimeout(historyTimer); historyRequest++; });
     $('lw-select').onchange = () => {
-      const w = state.workspaces.find(w => w.id === $('lw-select').value); $('lw-selected-path').textContent = w?.path || '使用当前聊天的独立临时目录；切换 Agent 时目录不变。';
+      const w = (state?.workspaces || []).find(w => w.id === $('lw-select').value); $('lw-selected-path').textContent = w?.path || '使用当前聊天的独立临时目录；切换 Agent 时目录不变。';
     };
     $('lw-use').onclick = () => safe(async () => {
       await api('/selection', 'PUT', {workspace_id: $('lw-select').value || null, chat_id: chatId(), make_default: $('lw-default').checked});
@@ -119,15 +132,31 @@
       await api('/selection', 'PUT', {workspace_id: w.id, chat_id: chatId(), make_default: $('lw-default').checked});
       await refresh(); $('lw-browser').hidden = true; notice('已使用工作区「' + w.name + '」。');
     }); };
-    $('lw-browse').onclick = () => safe(() => browse($('lw-path').value || state.home));
+    $('lw-browse').onclick = () => safe(async () => {
+      if (window.perchDesktop?.chooseWorkspace) {
+        const path = await window.perchDesktop.chooseWorkspace();
+        if (path) $('lw-path').value = path;
+      } else await browse($('lw-path').value || state.home);
+    });
     $('lw-up').onclick = () => safe(() => browse($('lw-up').dataset.path));
     $('lw-pick').onclick = () => { $('lw-path').value = browsing; $('lw-browser').hidden = true; };
+    $('lw-memory-more').onclick = () => safe(() => loadMemories(true));
     $('lw-memory-scope').onchange = () => { memoryScope = $('lw-memory-scope').value; safe(loadMemories); };
     $('lw-memory-search').onsubmit = e => { e.preventDefault(); safe(loadMemories); };
     $('lw-memory-form').onsubmit = e => { e.preventDefault(); safe(async () => {
       await api('/memories', 'POST', {workspace_id: workspace()?.id || null, content: $('lw-content').value, type: $('lw-memory-type').value, path: $('lw-memory-path').value || null});
       $('lw-content').value = ''; await loadMemories(); notice('已保存；切换模型后也可检索。');
     }); };
+  }
+  async function chooseWorkspace() {
+    if (!window.perchDesktop?.chooseWorkspace) return openManager('workspace');
+    const path = await window.perchDesktop.chooseWorkspace();
+    if (!path) return;
+    await refresh();
+    const w = (state?.workspaces || []).find(w=>w.path===path) || await api('', 'POST', {path});
+    await api('/selection', 'PUT', {workspace_id: w.id, chat_id: chatId(), make_default: false});
+    await refresh();
+    notice('已切换到工作区「' + w.name + '」。');
   }
   async function openManager(section) {
     if (!dialog) createDialog();
@@ -140,9 +169,10 @@
     $('lw-workspace-section').hidden = section !== 'workspace'; $('lw-memory-section').hidden = section !== 'memory';
     $('lw-history-section').hidden = section !== 'history';
     $('lw-history-tab').classList.toggle('lw-active', section === 'history');
-    $('lw-heading').textContent = section === 'history' ? '继续历史对话' : '本机工作区';
+    for (const tab of ['history', 'workspace', 'memory']) $('lw-' + tab + '-tab').setAttribute('aria-pressed', String(tab === section));
+    $('lw-heading').textContent = section === 'history' ? '继续历史对话' : section === 'memory' ? '共用记忆' : '本机工作区';
     $('lw-history-draft').hidden = true;
-    $('lw-description').textContent = section === 'history' ? '找到上次的话题，接着聊。' : '同一个目录，同一份记忆，切换 Agent 继续工作。';
+    $('lw-description').textContent = section === 'history' ? '找到上次的话题，接着聊。' : section === 'memory' ? '管理长期偏好与项目进度，供所有 Agent 共用。' : '为当前对话选择本机目录，切换 Agent 后继续使用。';
     $('lw-workspace-tab').classList.toggle('lw-active', section === 'workspace'); $('lw-memory-tab').classList.toggle('lw-active', section === 'memory');
     if (section === 'memory') await loadMemories();
     if (section === 'history') await loadHistory();
@@ -209,17 +239,38 @@
     for (const folder of data.directories) { const button = element('button', '▱  ' + folder.name); button.type = 'button'; button.onclick = () => safe(() => browse(folder.path)); list.append(button); }
     if (data.truncated) list.append(element('p', '仅显示前 500 个目录，可直接输入路径。', 'lw-hint'));
   }
-  async function loadMemories() {
+  async function loadMemories(more = false) {
+    more = more === true;
+    const request = ++memoryRequest;
+    const offset = more ? memoryOffset : 0;
+    const moreButton = $('lw-memory-more'); moreButton.disabled = true;
+    notice('正在读取记忆…');
     $('lw-memory-for').textContent = workspace() ? workspace().name + ' · ' + workspace().path : '当前聊天未绑定项目；使用全局记忆';
     const params = new URLSearchParams({scope: memoryScope, query: $('lw-query').value}); if (workspace()) params.set('workspace_id', workspace().id);
-    const rows = await api('/memories?' + params); const list = $('lw-memory-list'); list.replaceChildren();
+    params.set('offset', String(offset)); params.set('limit', '30');
+    let result;
+    try { result = await api('/memory-catalog?' + params); }
+    finally { if (request === memoryRequest) moreButton.disabled = false; }
+    if (request !== memoryRequest) return;
+    notice('');
+    const rows = result.items; memoryOffset = offset + rows.length;
+    moreButton.hidden = !result.has_more;
+    $('lw-memory-count').textContent = '已显示 ' + memoryOffset + ' / ' + result.total + ' 条记忆';
+    const list = $('lw-memory-list'); if (!more) list.replaceChildren();
     if (!rows.length) list.append(element('p', '这个范围还没有记忆。可在下方添加，或在聊天里说“请记住”。', 'lw-empty'));
     for (const m of rows) {
-      const card = element('article', undefined, 'lw-memory-card'); card.append(element('small', (m.type === 'user' ? '全局偏好' : '项目 / 上下文') + ' · ' + (m.path || '未分类'), 'lw-memory-meta'));
-      const content = element('p', m.content); card.append(content);
+      const card = element('article', undefined, 'lw-memory-card');
+      const source = m.path?.startsWith('imports/codex/') ? 'Codex 导入' : m.type === 'user' ? '全局偏好' : '项目 / 上下文';
+      const category = m.path ? m.path.split('/').slice(-2).join('/') : '未分类';
+      const meta = element('small', source + ' · ' + category, 'lw-memory-meta'); meta.title = m.path || ''; card.append(meta);
+      const content = element('p', m.content);
+      const disclosure = element('details', undefined, 'lw-memory-content');
+      const excerpt = m.content.split('\n').filter(line => !/^(Codex 导入资料|来源[:：]|SHA256[:：]|thread_id:|updated_at:|rollout_path:|cwd:|# |---$|name:|description:)/.test(line.trim())).join(' ').replace(/\s+/g, ' ').trim() || m.content;
+      const preview = element('summary', excerpt.slice(0, 120) + (excerpt.length > 120 ? '…' : ''));
+      disclosure.append(preview, content); card.append(disclosure);
       const actions = element('div', undefined, 'lw-memory-actions');
       const edit = element('button', '编辑'); edit.type = 'button'; edit.onclick = () => {
-        const textarea = element('textarea'); textarea.value = m.content; textarea.rows = 4; content.replaceWith(textarea); edit.hidden = true;
+        const textarea = element('textarea'); textarea.value = m.content; textarea.rows = 4; disclosure.open = true; content.replaceWith(textarea); edit.hidden = true;
         const save = element('button', '保存'); save.type = 'button'; save.onclick = () => safe(async () => { await api('/memories', 'PATCH', {workspace_id: m.path?.match(/^workspaces\/([^/]+)/)?.[1] || workspace()?.id || null, operations: [{action: 'replace', id: m.id, content: textarea.value}]}); await loadMemories(); notice('修改已保存，所有 Agent 下次读取时生效。'); });
         const cancel = element('button', '取消'); cancel.type = 'button'; cancel.onclick = () => safe(loadMemories); actions.prepend(save, cancel);
       };
@@ -237,5 +288,12 @@
   let scheduled = false;
   new MutationObserver(() => { if (!scheduled) { scheduled = true; requestAnimationFrame(() => { scheduled = false; mount(); }); } }).observe(document.documentElement, {childList: true, subtree: true});
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh().catch(() => {}); });
+  // Svelte navigation can reuse DOM nodes; URL changes must refresh workspace state.
+  for (const method of ['pushState','replaceState']) {
+    const original=history[method];
+    history[method]=function(...args){const result=original.apply(this,args);window.dispatchEvent(new Event('perch:navigate'));return result;};
+  }
+  window.addEventListener('popstate',()=>window.dispatchEvent(new Event('perch:navigate')));
+  window.addEventListener('perch:navigate',mount);
   mount();
 })();
